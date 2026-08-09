@@ -70,7 +70,7 @@
 </head>
 <body>
 <div class="header">
-    <h1>🎤 HB音声入力 実地テスト <span style="font-size:10px; color:#888;">v6</span></h1>
+    <h1>🎤 HB音声入力 実地テスト <span style="font-size:10px; color:#888;">v7</span></h1>
     <p>体育館の騒音下で音声認識がどこまで使えるかを実測するツール</p>
 </div>
 <div class="container">
@@ -81,7 +81,7 @@
     <div class="card">
         <div class="talk-area">
             <button id="talk-btn">押している間<br>だけ話す</button>
-            <div class="talk-hint">ボタンを押しながら発話 → 話し終えて<b>一呼吸おいてから</b>離す(語尾切れ防止)</div>
+            <div class="talk-hint">押す → <b>振動と「どうぞ!」を待って</b>話す → 話し終えて<b>一呼吸おいて</b>離す</div>
             <div class="talk-hint" style="color:var(--danger); font-weight:bold;">⚠️ LINEやアプリ内のブラウザでは動きません。SafariまたはChrome本体で開いてください</div>
         </div>
         <div id="live-transcript"></div>
@@ -311,7 +311,7 @@
     async function startListening() {
         if (!SR || rec) return;
         isPressed = true;
-        talkBtn.classList.add('listening'); talkBtn.innerHTML = '👂 認識中…';
+        talkBtn.classList.add('listening'); talkBtn.innerHTML = '⏳ 準備中…';
         const ok = await ensureMic();
         // 許可ダイアログ操作中に指が離れていたら開始しない(初回タップは許可取得のみで終わる)
         if (!ok || !isPressed) { talkBtn.classList.remove('listening'); talkBtn.innerHTML = '押している間<br>だけ話す'; return; }
@@ -320,6 +320,15 @@
         rec.lang = 'ja-JP';
         rec.interimResults = true;
         rec.continuous = false; // 全端末OFF: Androidは結果重複、iOSは不具合の既知原因。短い発話+押下中の猶予で十分
+        // マイクの準備完了を振動+表示で合図(準備前に話し始めると無音になるため)
+        let readyCued = false;
+        const cueReady = () => {
+            if (readyCued) return; readyCued = true;
+            if (navigator.vibrate) navigator.vibrate(80);
+            if (isPressed) talkBtn.innerHTML = '👂 どうぞ!';
+        };
+        rec.onstart = cueReady;
+        rec.onaudiostart = cueReady;
         rec.onresult = (e) => {
             // 毎回結果リスト全体から組み立て直す(累積方式はAndroidで結果が重複するため)
             finalText = ''; interimText = '';

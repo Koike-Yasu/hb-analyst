@@ -68,7 +68,7 @@
 </head>
 <body>
 <div class="header">
-    <h1>🎤 HB音声入力 実地テスト <span style="font-size:10px; color:#888;">v2</span></h1>
+    <h1>🎤 HB音声入力 実地テスト <span style="font-size:10px; color:#888;">v3</span></h1>
     <p>体育館の騒音下で音声認識がどこまで使えるかを実測するツール</p>
 </div>
 <div class="container">
@@ -79,7 +79,7 @@
     <div class="card">
         <div class="talk-area">
             <button id="talk-btn">押している間<br>だけ話す</button>
-            <div class="talk-hint">ボタンを押しながら発話 → 離すと認識結果が出ます</div>
+            <div class="talk-hint">ボタンを押しながら発話 → 話し終えて<b>一呼吸おいてから</b>離す(語尾切れ防止)</div>
             <div class="talk-hint" style="color:var(--danger); font-weight:bold;">⚠️ LINEやアプリ内のブラウザでは動きません。SafariまたはChrome本体で開いてください</div>
         </div>
         <div id="live-transcript"></div>
@@ -136,14 +136,14 @@
 <script>
     // ===== 語彙辞書(本番ツールと同じ語彙で照合する) =====
     const ACTION_DICT = [
-        { key:'得点', words:['得点','ゴール','とくてん'] },
-        { key:'セーブ', words:['セーブ','阻止','キーパー'] },
-        { key:'枠外', words:['枠外','わくがい','枠の外'] },
-        { key:'パスミス', words:['パスミス','パス ミス'] },
+        { key:'得点', words:['得点','ゴール','とくてん','特典'] },
+        { key:'セーブ', words:['セーブ','阻止','キーパー','西部','西武','セイブ','西'] },
+        { key:'枠外', words:['枠外','わくがい','枠の外','枠'] },
+        { key:'パスミス', words:['パスミス','パス ミス','パスミ'] },
         { key:'キャッチ', words:['キャッチ'] },
         { key:'オーバー', words:['オーバー'] },
         { key:'ラインクロス', words:['ラインクロス','クロス'] },
-        { key:'スチール', words:['スチール','奪取','カット'] },
+        { key:'スチール', words:['スチール','奪取','カット','スチ'] },
         { key:'シュートブロック', words:['ブロック'] },
         { key:'アシスト', words:['アシスト'] },
         { key:'チャージ', words:['チャージ'] },
@@ -159,8 +159,19 @@
         { key:'7人攻撃', words:['7人','七人'] },
     ];
 
+    // 漢数字→算用数字(選手番号1〜16用)
+    function kanjiToNum(k) {
+        const map = {'一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9};
+        if (k === '十') return '10';
+        if (k.startsWith('十')) return String(10 + (map[k[1]] || 0));
+        return String(map[k] || k);
+    }
+
     function parseTranscript(raw) {
-        const text = raw.replace(/\s+/g, '');
+        let text = raw.replace(/\s+/g, '');
+        // 実測で確認された音の似た誤認識を正規化
+        text = text.replace(/キューバ/g, '9番');
+        text = text.replace(/([一二三四五六七八九十]{1,2})番/g, (m, k) => kanjiToNum(k) + '番');
         const out = { player:null, action:null, course:null, phase:null };
         // フェーズ(「7人」を選手番号と誤爆させないため先に判定して除去した文字列で番号を探す)
         let numSearchText = text;
@@ -250,8 +261,9 @@
         rec.interimResults = true;
         rec.continuous = !IS_IOS; // iOS Safariはcontinuous=trueに不具合があるためOFF
         rec.onresult = (e) => {
-            interimText = '';
-            for (let i = e.resultIndex; i < e.results.length; i++) {
+            // 毎回結果リスト全体から組み立て直す(累積方式はAndroidで結果が重複するため)
+            finalText = ''; interimText = '';
+            for (let i = 0; i < e.results.length; i++) {
                 if (e.results[i].isFinal) finalText += e.results[i][0].transcript;
                 else interimText += e.results[i][0].transcript;
             }
@@ -266,7 +278,8 @@
         talkBtn.classList.remove('listening');
         talkBtn.innerHTML = '押している間<br>だけ話す';
         releaseTime = performance.now();
-        if (rec) { try { rec.stop(); } catch(err) {} }
+        // 語尾切れ対策: 離してから0.4秒は聞き続けてから停止する
+        if (rec) { setTimeout(() => { if (rec) { try { rec.stop(); } catch(err) {} } }, 400); }
     }
 
     // プッシュトゥトーク(タッチ・マウス両対応)

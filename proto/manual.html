@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>熊本HBアナリスト v2 操作マニュアル</title>
+<style>
+    :root { --primary:#007AFF; --danger:#FF3B30; --success:#34C759; --warning:#FF9500; --ink:#1c1c1e; --bg:#F2F2F7; }
+    * { box-sizing:border-box; }
+    body { font-family:-apple-system, "Hiragino Sans", "BIZ UDPGothic", sans-serif; margin:0; background:var(--bg); color:var(--ink); line-height:1.75; }
+    .hdr { background:var(--ink); color:white; padding:18px 16px 14px; }
+    .hdr h1 { font-size:18px; margin:0; }
+    .hdr p { font-size:11px; color:#aaa; margin:6px 0 0; }
+    .hdr a { color:#8CC7FF; }
+    .wrap { max-width:640px; margin:0 auto; padding:12px; }
+    .card { background:white; border-radius:12px; padding:14px 16px; margin-bottom:14px; box-shadow:0 1px 3px rgba(0,0,0,0.08); }
+    h2 { font-size:15px; margin:0 0 10px; padding-bottom:6px; border-bottom:2px solid var(--primary); }
+    h3 { font-size:13px; margin:14px 0 4px; color:#333; }
+    p, li { font-size:13px; margin:4px 0; }
+    ul, ol { padding-left:20px; margin:4px 0; }
+    .kbtn { display:inline-block; background:#eee; border:1px solid #ccc; border-radius:6px; padding:1px 8px; font-size:12px; font-weight:bold; white-space:nowrap; }
+    .kbtn.blue { background:var(--primary); color:white; border-color:var(--primary); }
+    .kbtn.red { background:var(--danger); color:white; border-color:var(--danger); }
+    .kbtn.green { background:var(--success); color:white; border-color:var(--success); }
+    .kbtn.orange { background:var(--warning); color:white; border-color:var(--warning); }
+    .imp { background:#FFF3CD; border-left:4px solid var(--warning); border-radius:6px; padding:8px 12px; font-size:12px; margin:8px 0; }
+    .tip { background:#E8F4FD; border-left:4px solid var(--primary); border-radius:6px; padding:8px 12px; font-size:12px; margin:8px 0; }
+    .say { background:#f4f0fa; border-radius:8px; padding:2px 10px; font-weight:bold; display:inline-block; margin:2px 2px; font-size:13px; }
+    table { width:100%; border-collapse:collapse; font-size:12px; margin:8px 0; }
+    th, td { border:1px solid #ddd; padding:6px 8px; text-align:left; }
+    th { background:#f1f3f5; }
+    .toc a { color:var(--primary); text-decoration:none; font-size:13px; }
+    .foot { text-align:center; font-size:10px; color:#999; padding:10px 0 30px; }
+</style>
+</head>
+<body>
+<div class="hdr">
+    <h1>📖 熊本HBアナリスト v2 操作マニュアル</h1>
+    <p>アプリ本体: <a href="https://koike-yasu.github.io/hb-analyst/proto/">koike-yasu.github.io/hb-analyst/proto/</a>(α版)</p>
+</div>
+<div class="wrap">
+
+<div class="card toc">
+    <h2>目次</h2>
+    <a href="#s0">0. アプリを開く</a><br>
+    <a href="#s1">1. 試合前の準備(3分)</a><br>
+    <a href="#s2">2. 試合中の記録(タップ入力)</a><br>
+    <a href="#s3">3. 音声入力の使い方</a><br>
+    <a href="#s4">4. ⏳補完 — あとから場所とコースを入れる</a><br>
+    <a href="#s5">5. 修正・取消</a><br>
+    <a href="#s6">6. 試合が終わったら</a><br>
+    <a href="#s7">7. 困ったとき</a><br>
+    <a href="#s8">8. α版でまだ出来ないこと</a>
+</div>
+
+<div class="card" id="s0">
+    <h2>0. アプリを開く</h2>
+    <ul>
+        <li>スマホの <b>Chrome(Android)</b> または <b>Safari(iPhone)</b> で上記URLを開く</li>
+        <li>よく使う場合はブラウザのメニューから<b>「ホーム画面に追加」</b>しておくと、アプリのようにワンタップで起動できます</li>
+        <li>データは<b>1操作ごとに端末へ自動保存</b>。ブラウザを閉じたり充電が切れても、開き直せば続きから再開できます</li>
+    </ul>
+    <div class="imp">🚨 <b>LINEやX(Twitter)の中で開かない!</b> アプリ内ブラウザではマイク(音声入力)が使えません。リンクを長押し→「Chromeで開く」等でブラウザ本体で開いてください。</div>
+</div>
+
+<div class="card" id="s1">
+    <h2>1. 試合前の準備(3分)</h2>
+    <h3>STEP 1 モードを選ぶ(画面左上)</h3>
+    <ul>
+        <li><span class="kbtn">🏠 味方試合</span> … 自チームの試合を記録する通常モード</li>
+        <li><span class="kbtn">🔭 相手偵察</span> … 対戦候補の試合を観戦し、そのチームだけを記録するスカウティングモード(初回にチーム名を聞かれます)</li>
+    </ul>
+    <h3>STEP 2 チーム名を入れる</h3>
+    <p>スコアの横のチーム名をタップして入力します。</p>
+    <h3>STEP 3 選手を登録する(右上「👥選手」)</h3>
+    <ul>
+        <li><b>タップ</b> → 名前を入力 → GK か CP かを選択</li>
+        <li><b>長押し</b> → 出場中(オンコート)の切替。<b>水色=出場中</b></li>
+    </ul>
+    <div class="imp">🚨 <b>出場中のGKを正しく設定してください。</b>守備のセーブ・失点が、出場中のGKへ自動で記録されます。</div>
+    <div class="tip">💡 名前は後からでもOK。記録は背番号に紐づくので、試合後に名前を付けても全戦績がその選手に引き継がれます。選手登録は試合をリセットしても消えません。</div>
+</div>
+
+<div class="card" id="s2">
+    <h2>2. 試合中の記録(タップ入力)</h2>
+    <h3>タイマー</h3>
+    <ul>
+        <li>時計をタップ=<b>開始/停止</b>。最初の開始で「試合開始」がログに自動記録されます</li>
+        <li><span class="kbtn">-10s</span> <span class="kbtn">+10s</span> で公式時計とのズレを調整</li>
+        <li>「前半」バッジをタップすると後半へ(「前半終了」も自動記録)</li>
+    </ul>
+    <h3>⚔️ 攻撃の記録(青いバーが点灯中)</h3>
+    <p>基本は <b>[アクション] → [選手番号] の2タップだけ</b>です。</p>
+    <ul>
+        <li>シュート: <span class="kbtn blue">🤾得点</span> <span class="kbtn">枠外</span> <span class="kbtn orange">🧤止められた</span></li>
+        <li>ミス: <span class="kbtn">パスミス</span> <span class="kbtn">キャッチ</span> <span class="kbtn">オーバー</span> <span class="kbtn">Lクロス</span></li>
+        <li>その他: <span class="kbtn">アシスト</span> <span class="kbtn">チャージ</span> <span class="kbtn">警告(Y)</span> <span class="kbtn">TO⏱</span></li>
+    </ul>
+    <div class="tip">💡 シュートの「どこから打ったか」「どのコースか」はその場で入れなくてOK。自動で⏳補完リストに入ります(4章)。記録すると攻撃権が自動で相手に切り替わります。</div>
+    <h3>🛡️ 守備の記録(赤いバーが点灯中) — GKパネル</h3>
+    <p><b>1タップで完了</b>します。</p>
+    <ul>
+        <li><span class="kbtn green">🧤セーブ!</span> <span class="kbtn red">😢失点</span> <span class="kbtn">枠外</span> … 出場中のGKに自動で記録。<b>相手の背番号は分からなければ後回しでOK</b></li>
+        <li><span class="kbtn green">✋スチール</span> <span class="kbtn green">🛡️ブロック</span> … 奪った自分の選手をタップ</li>
+    </ul>
+    <h3>フェーズ(セット/速攻)は自動判定</h3>
+    <p>攻撃権が移ってから15秒以内のシュート=<b>1次速攻</b>、それ以降=<b>セット</b>と自動で記録されます。違っていたら補完画面で直せます。</p>
+</div>
+
+<div class="card" id="s3">
+    <h2>3. 音声入力の使い方(🎤中央の青ボタン)</h2>
+    <ol>
+        <li>ボタンを<b>押し続ける</b></li>
+        <li>ブルッと振動して「👂どうぞ!」が出たら<b>話す</b></li>
+        <li>話し終えて<b>一呼吸おいてから</b>指を離す</li>
+    </ol>
+    <h3>言い方の例(順番は自由)</h3>
+    <p>
+        <span class="say">6番 得点 右下</span>
+        <span class="say">ウィング 6番 得点 右下</span>
+        <span class="say">キーパー セーブ 左下</span>
+        <span class="say">速攻 7番 得点</span>
+        <span class="say">5番 パスミス</span>
+        <span class="say">9番 スチール</span>
+        <span class="say">タイムアウト</span>
+        <span class="say">試合開始</span>
+        <span class="say">前半終了</span>
+    </p>
+    <div class="tip">💡 コツ<br>
+    ・シュートは「シュート」ではなく<b>結果の言葉(得点/セーブ/枠外)</b>で言う<br>
+    ・「キーパー セーブ」は番号なしでOK(出場中GKに自動記録)<br>
+    ・多少の誤認識(特典→得点 など)は自動で読み替えます</div>
+    <div class="tip">🎓 チーム独自の呼び方(例: エース→7番)は、<a href="https://koike-yasu.github.io/hb-analyst/">音声テストページ</a>の「学習辞書」で登録すると本体でもそのまま効きます。</div>
+</div>
+
+<div class="card" id="s4">
+    <h2>4. ⏳補完 — あとから場所とコースを入れる</h2>
+    <ul>
+        <li>右下 <span class="kbtn">⏳補完</span> の数字=場所・コース未入力の件数</li>
+        <li><b>タイムアウト・ハーフタイム・試合後</b>に、記憶が新しいうちに消化しましょう</li>
+        <li>1件タップ → [フェーズ][シュート位置][コート図][ゴール図][背番号] を入れて保存</li>
+    </ul>
+    <div class="imp">🚨 コート図は<b>常に「攻めるゴールが上」</b>です。前後半のコートチェンジや左右の向きは一切考えなくてOK(自動処理されます)。</div>
+    <div class="tip">💡 全部埋まらなくても大丈夫。シュート決定率・得点・時間帯分析は2タップの時点ですでに完成しています。埋めた分だけゾーン分析・コース分析が濃くなります。</div>
+</div>
+
+<div class="card" id="s5">
+    <h2>5. 修正・取消</h2>
+    <ul>
+        <li><b>押し間違えた!</b> → 左下 <span class="kbtn">◀取消</span> で直前の1件を削除</li>
+        <li><b>あとで気づいた</b> → 「直近の記録」の行をタップ → 内容を修正 or 🗑️削除</li>
+    </ul>
+</div>
+
+<div class="card" id="s6">
+    <h2>6. 試合が終わったら</h2>
+    <ul>
+        <li>右上 <span class="kbtn">⤓保存</span> でデータファイルをダウンロード(「試合終了」も自動記録)</li>
+        <li>「新しい試合を始めますか?」で OK → 画面リセット(<b>選手登録は残ります</b>)</li>
+    </ul>
+</div>
+
+<div class="card" id="s7">
+    <h2>7. 困ったとき</h2>
+    <table>
+        <tr><th>症状</th><th>対処</th></tr>
+        <tr><td>音声が無反応</td><td>振動「どうぞ!」を待ってから話す。Androidはインターネット接続(Wi-Fi/モバイル通信)が必要なので電波を確認</td></tr>
+        <tr><td>マイクのエラーが出る</td><td>LINE等のアプリ内ブラウザで開いていないか確認。Chrome/Safari本体で開き直す。それでも出る場合はブラウザ設定でマイク許可を確認</td></tr>
+        <tr><td>誤認識が多い</td><td><a href="https://koike-yasu.github.io/hb-analyst/">音声テストページ</a>で正解率を実測し、「🎓学習辞書」に読み替えを登録</td></tr>
+        <tr><td>iPhoneで音声が動かない</td><td>設定→一般→キーボード→「音声入力」をONにする</td></tr>
+        <tr><td>表示がおかしい</td><td>ページを再読み込み(データは自動保存されているので消えません)</td></tr>
+    </table>
+</div>
+
+<div class="card" id="s8">
+    <h2>8. α版でまだ出来ないこと(次段階で実装予定)</h2>
+    <ul>
+        <li>分析レポート画面(個人戦績・課題・ゾーン分析・GKコース分析の表示)</li>
+        <li>Excel/CSV出力・旧ツールとのデータ互換</li>
+        <li>交代の記録、タイムアウト効果測定の表示</li>
+    </ul>
+    <p>※記録データには分析に必要な情報がすべて入っているので、これらは後から追加されます。今の試合データは無駄になりません。</p>
+</div>
+
+<div class="foot">熊本HBアナリスト v2 (α) 操作マニュアル — 2026-08</div>
+</div>
+</body>
+</html>

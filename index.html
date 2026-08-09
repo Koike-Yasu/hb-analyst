@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>HB音声入力 実地テスト</title>
+<style>
+    :root { --primary:#007AFF; --danger:#FF3B30; --success:#34C759; --warning:#FF9500; }
+    * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+    body { font-family:-apple-system, "Hiragino Sans", "BIZ UDPGothic", sans-serif; margin:0; background:#F2F2F7; color:#1c1c1e; padding-bottom:40px; }
+    .header { background:#1c1c1e; color:white; padding:12px 16px; }
+    .header h1 { font-size:16px; margin:0; }
+    .header p { font-size:11px; margin:4px 0 0; color:#aaa; }
+    .container { padding:12px; max-width:600px; margin:0 auto; }
+    .card { background:white; border-radius:10px; padding:12px; margin-bottom:12px; box-shadow:0 1px 3px rgba(0,0,0,0.08); }
+    .card h2 { font-size:13px; margin:0 0 8px; color:#555; }
+
+    #env-warning { display:none; background:#fff3cd; border:1px solid #ffcc00; border-radius:8px; padding:10px; font-size:12px; margin-bottom:12px; }
+    #unsupported { display:none; background:#FFE5E5; border:1px solid var(--danger); border-radius:8px; padding:10px; font-size:12px; margin-bottom:12px; font-weight:bold; }
+
+    .talk-area { text-align:center; padding:10px 0 4px; }
+    #talk-btn {
+        width:150px; height:150px; border-radius:50%; border:none;
+        background:var(--primary); color:white; font-size:16px; font-weight:bold;
+        box-shadow:0 4px 12px rgba(0,122,255,0.4); cursor:pointer;
+        user-select:none; -webkit-user-select:none; touch-action:none;
+        transition: background 0.1s, transform 0.1s;
+    }
+    #talk-btn.listening { background:var(--danger); transform:scale(1.08); box-shadow:0 4px 20px rgba(255,59,48,0.6); }
+    #talk-btn:disabled { background:#aaa; box-shadow:none; }
+    .talk-hint { font-size:11px; color:#888; margin-top:8px; }
+
+    #live-transcript { min-height:24px; font-size:14px; color:#555; text-align:center; padding:6px; font-style:italic; }
+
+    .result-card { border:2px solid var(--primary); border-radius:10px; padding:10px; margin-bottom:10px; background:#f0f7ff; }
+    .raw-text { font-size:13px; color:#333; margin-bottom:6px; word-break:break-all; }
+    .raw-text .label, .parsed .label { font-size:10px; color:#888; display:block; }
+    .chips { display:flex; flex-wrap:wrap; gap:5px; margin:4px 0 8px; }
+    .chip { padding:4px 10px; border-radius:14px; font-size:12px; font-weight:bold; color:white; }
+    .chip.player { background:var(--primary); }
+    .chip.action { background:var(--danger); }
+    .chip.course { background:var(--success); }
+    .chip.phase  { background:var(--warning); }
+    .chip.none   { background:#bbb; }
+    .latency { font-size:10px; color:#888; margin-bottom:8px; }
+    .judge-row { display:flex; gap:6px; }
+    .judge-row button { flex:1; padding:10px 4px; border:none; border-radius:8px; font-size:12px; font-weight:bold; cursor:pointer; color:white; }
+    .j-ok { background:var(--success); }
+    .j-partial { background:var(--warning); }
+    .j-ng { background:var(--danger); }
+    .j-silent { background:#8E8E93; }
+
+    .stats-grid { display:grid; grid-template-columns:repeat(4, 1fr); gap:6px; text-align:center; }
+    .stat-box { background:#f8f9fa; border-radius:8px; padding:8px 2px; }
+    .stat-box .num { font-size:20px; font-weight:bold; }
+    .stat-box .lbl { font-size:9px; color:#888; }
+    #stat-rate .num { color:var(--primary); }
+
+    .phrase-list { font-size:12px; line-height:2.0; }
+    .phrase-list code { background:#eef; padding:2px 8px; border-radius:4px; font-weight:bold; font-size:13px; }
+
+    #history { font-size:11px; }
+    #history .h-row { padding:6px 4px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; gap:6px; }
+    #history .h-verdict { font-weight:bold; white-space:nowrap; }
+
+    .reset-btn { width:100%; padding:8px; background:none; border:1px solid #ccc; border-radius:8px; color:#888; font-size:11px; cursor:pointer; margin-top:8px; }
+</style>
+</head>
+<body>
+<div class="header">
+    <h1>🎤 HB音声入力 実地テスト</h1>
+    <p>体育館の騒音下で音声認識がどこまで使えるかを実測するツール</p>
+</div>
+<div class="container">
+
+    <div id="unsupported">❌ このブラウザは音声認識(Web Speech API)に対応していません。<br>Chrome(PC/Android)またはSafari(iOS 14.5以降)でお試しください。</div>
+    <div id="env-warning">⚠️ オフラインです。Chromeの音声認識はインターネット接続が必要です。体育館のWi-Fi/テザリング環境を確認してください。</div>
+
+    <div class="card">
+        <div class="talk-area">
+            <button id="talk-btn">押している間<br>だけ話す</button>
+            <div class="talk-hint">ボタンを押しながら発話 → 離すと認識結果が出ます</div>
+        </div>
+        <div id="live-transcript"></div>
+    </div>
+
+    <div id="result-area"></div>
+
+    <div class="card">
+        <h2>📊 集計(この端末に自動保存)</h2>
+        <div class="stats-grid">
+            <div class="stat-box"><div class="num" id="stat-total">0</div><div class="lbl">試行回数</div></div>
+            <div class="stat-box"><div class="num" id="stat-ok">0</div><div class="lbl">完全正解</div></div>
+            <div class="stat-box"><div class="num" id="stat-partial">0</div><div class="lbl">一部誤り</div></div>
+            <div class="stat-box" id="stat-rate"><div class="num">-%</div><div class="lbl">完全正解率</div></div>
+        </div>
+        <button class="reset-btn" onclick="resetTally()">集計をリセット</button>
+    </div>
+
+    <div class="card">
+        <h2>🗣️ テスト用の読み上げフレーズ例(本番想定の語彙)</h2>
+        <div class="phrase-list">
+            <code>6番 得点 右下</code> … シュート成功+コース<br>
+            <code>12番 セーブ</code> … GK阻止<br>
+            <code>3番 枠外</code> … シュートミス<br>
+            <code>速攻 7番 得点 左上</code> … フェーズ込み<br>
+            <code>5番 パスミス</code> … ターンオーバー<br>
+            <code>9番 スチール</code> … ボール奪取<br>
+            <code>タイムアウト</code> … 単語のみ<br>
+            <code>4番 2分退場</code> … ペナルティ
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>📝 テスト履歴(直近20件)</h2>
+        <div id="history"><div style="color:#aaa; padding:8px;">まだ記録がありません</div></div>
+    </div>
+
+    <div class="card" style="font-size:11px; color:#666; line-height:1.7;">
+        <h2>🏟️ 体育館での測り方</h2>
+        ① 静かな場所でまず10回試して基準値を取る<br>
+        ② 練習中のコートサイド(ホイッスル・ボール音あり)で20回<br>
+        ③ できれば試合形式の声援がある状態で20回<br>
+        ④ それぞれの「完全正解率」をメモして比較<br>
+        <strong>目安: 騒音下で90%以上なら本採用、70〜90%なら補助扱い、70%未満なら見送り</strong>
+    </div>
+</div>
+
+<script>
+    // ===== 語彙辞書(本番ツールと同じ語彙で照合する) =====
+    const ACTION_DICT = [
+        { key:'得点', words:['得点','ゴール','とくてん'] },
+        { key:'セーブ', words:['セーブ','阻止','キーパー'] },
+        { key:'枠外', words:['枠外','わくがい','枠の外'] },
+        { key:'パスミス', words:['パスミス','パス ミス'] },
+        { key:'キャッチ', words:['キャッチ'] },
+        { key:'オーバー', words:['オーバー'] },
+        { key:'ラインクロス', words:['ラインクロス','クロス'] },
+        { key:'スチール', words:['スチール','奪取','カット'] },
+        { key:'シュートブロック', words:['ブロック'] },
+        { key:'アシスト', words:['アシスト'] },
+        { key:'チャージ', words:['チャージ'] },
+        { key:'タイムアウト', words:['タイムアウト','タイム アウト'] },
+        { key:'警告', words:['警告','イエロー'] },
+        { key:'2分退場', words:['退場','2分'] },
+        { key:'失格', words:['失格','レッド'] },
+    ];
+    const COURSE_DICT = ['右下','右中','右上','左下','左中','左上','中央','中上','中下'];
+    const PHASE_DICT = [
+        { key:'速攻', words:['速攻','そっこう'] },
+        { key:'セット', words:['セット'] },
+        { key:'7人攻撃', words:['7人','七人'] },
+    ];
+
+    function parseTranscript(raw) {
+        const text = raw.replace(/\s+/g, '');
+        const out = { player:null, action:null, course:null, phase:null };
+        // フェーズ(「7人」を選手番号と誤爆させないため先に判定して除去した文字列で番号を探す)
+        let numSearchText = text;
+        for (const p of PHASE_DICT) {
+            if (p.words.some(w => text.includes(w.replace(/\s+/g,'')))) { out.phase = p.key; p.words.forEach(w => { numSearchText = numSearchText.split(w.replace(/\s+/g,'')).join(''); }); break; }
+        }
+        // アクション(2分退場の「2」も番号誤爆源なので該当語を除去)
+        for (const a of ACTION_DICT) {
+            if (a.words.some(w => text.includes(w.replace(/\s+/g,'')))) { out.action = a.key; a.words.forEach(w => { numSearchText = numSearchText.split(w.replace(/\s+/g,'')).join(''); }); break; }
+        }
+        // コース
+        for (const c of COURSE_DICT) { if (text.includes(c)) { out.course = c; break; } }
+        // 選手番号(1〜16)
+        const m = numSearchText.match(/(\d{1,2})\s*番?/);
+        if (m) { const n = parseInt(m[1], 10); if (n >= 1 && n <= 16) out.player = n; }
+        return out;
+    }
+
+    // ===== 音声認識まわり =====
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const talkBtn = document.getElementById('talk-btn');
+    let rec = null, finalText = '', interimText = '', releaseTime = 0, resultShown = false;
+
+    if (!SR) {
+        document.getElementById('unsupported').style.display = 'block';
+        talkBtn.disabled = true;
+    }
+    function checkOnline() { document.getElementById('env-warning').style.display = navigator.onLine ? 'none' : 'block'; }
+    window.addEventListener('online', checkOnline); window.addEventListener('offline', checkOnline); checkOnline();
+
+    function startListening() {
+        if (!SR || rec) return;
+        finalText = ''; interimText = ''; resultShown = false;
+        rec = new SR();
+        rec.lang = 'ja-JP';
+        rec.interimResults = true;
+        rec.continuous = true;
+        rec.onresult = (e) => {
+            interimText = '';
+            for (let i = e.resultIndex; i < e.results.length; i++) {
+                if (e.results[i].isFinal) finalText += e.results[i][0].transcript;
+                else interimText += e.results[i][0].transcript;
+            }
+            document.getElementById('live-transcript').innerText = '「' + (finalText + interimText) + '」';
+        };
+        rec.onerror = (e) => {
+            if (e.error === 'no-speech') return;
+            document.getElementById('live-transcript').innerText = '⚠️ エラー: ' + e.error + (e.error === 'not-allowed' ? ' (マイク許可が必要です。file://で開いている場合はlocalhost経由で開いてください)' : '');
+        };
+        rec.onend = () => { rec = null; showResult(); };
+        try { rec.start(); talkBtn.classList.add('listening'); talkBtn.innerHTML = '👂 認識中…'; document.getElementById('live-transcript').innerText = ''; } catch(err) {}
+    }
+    function stopListening() {
+        talkBtn.classList.remove('listening');
+        talkBtn.innerHTML = '押している間<br>だけ話す';
+        releaseTime = performance.now();
+        if (rec) { try { rec.stop(); } catch(err) {} }
+    }
+
+    // プッシュトゥトーク(タッチ・マウス両対応)
+    talkBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startListening(); }, { passive:false });
+    talkBtn.addEventListener('touchend', (e) => { e.preventDefault(); stopListening(); }, { passive:false });
+    talkBtn.addEventListener('mousedown', (e) => { if (e.pointerType !== 'touch') startListening(); });
+    talkBtn.addEventListener('mouseup', () => stopListening());
+    talkBtn.addEventListener('mouseleave', () => { if (rec) stopListening(); });
+
+    // ===== 結果表示と採点 =====
+    function showResult() {
+        if (resultShown) return; resultShown = true;
+        const raw = (finalText + interimText).trim();
+        const latency = releaseTime ? Math.round(performance.now() - releaseTime) : 0;
+        const parsed = parseTranscript(raw);
+        const chips = [];
+        if (parsed.phase) chips.push(`<span class="chip phase">${parsed.phase}</span>`);
+        if (parsed.player) chips.push(`<span class="chip player">#${parsed.player}</span>`);
+        if (parsed.action) chips.push(`<span class="chip action">${parsed.action}</span>`);
+        if (parsed.course) chips.push(`<span class="chip course">${parsed.course}</span>`);
+        if (chips.length === 0) chips.push('<span class="chip none">解釈できず</span>');
+
+        document.getElementById('result-area').innerHTML = `
+            <div class="result-card">
+                <div class="raw-text"><span class="label">認識された文字列:</span>${raw ? '「' + raw + '」' : '(無音/認識なし)'}</div>
+                <div class="parsed"><span class="label">ツールとしての解釈:</span><div class="chips">${chips.join('')}</div></div>
+                <div class="latency">ボタンを離してから結果確定まで: ${latency}ms</div>
+                <div style="font-size:10px; color:#888; margin-bottom:4px;">▼ 自分が言った内容と比べて採点してください</div>
+                <div class="judge-row">
+                    <button class="j-ok" onclick="judge('ok','${escapeQ(raw)}')">⭕ 完全正解</button>
+                    <button class="j-partial" onclick="judge('partial','${escapeQ(raw)}')">△ 一部誤り</button>
+                    <button class="j-ng" onclick="judge('ng','${escapeQ(raw)}')">❌ 誤認識</button>
+                    <button class="j-silent" onclick="judge('silent','${escapeQ(raw)}')">🔇 無反応</button>
+                </div>
+            </div>`;
+    }
+    function escapeQ(s) { return s.replace(/\\/g,'\\\\').replace(/'/g, "\\'").replace(/"/g,'&quot;'); }
+
+    let tally = JSON.parse(localStorage.getItem('hb-voice-test-tally') || '{"total":0,"ok":0,"partial":0,"ng":0,"silent":0,"history":[]}');
+
+    function judge(verdict, raw) {
+        tally.total++; tally[verdict]++;
+        tally.history.unshift({ t: new Date().toLocaleTimeString('ja-JP'), raw: raw, v: verdict });
+        if (tally.history.length > 20) tally.history.pop();
+        localStorage.setItem('hb-voice-test-tally', JSON.stringify(tally));
+        document.getElementById('result-area').innerHTML = '';
+        document.getElementById('live-transcript').innerText = '';
+        renderTally();
+    }
+    function renderTally() {
+        document.getElementById('stat-total').innerText = tally.total;
+        document.getElementById('stat-ok').innerText = tally.ok;
+        document.getElementById('stat-partial').innerText = tally.partial;
+        document.querySelector('#stat-rate .num').innerText = tally.total > 0 ? Math.round(tally.ok / tally.total * 100) + '%' : '-%';
+        const vLabel = { ok:'⭕', partial:'△', ng:'❌', silent:'🔇' };
+        const h = document.getElementById('history');
+        h.innerHTML = tally.history.length === 0 ? '<div style="color:#aaa; padding:8px;">まだ記録がありません</div>'
+            : tally.history.map(x => `<div class="h-row"><span>[${x.t}] ${x.raw ? '「' + x.raw + '」' : '(無音)'}</span><span class="h-verdict">${vLabel[x.v]}</span></div>`).join('');
+    }
+    function resetTally() {
+        if (!confirm('集計と履歴をリセットしますか?')) return;
+        tally = { total:0, ok:0, partial:0, ng:0, silent:0, history:[] };
+        localStorage.setItem('hb-voice-test-tally', JSON.stringify(tally));
+        renderTally();
+    }
+    renderTally();
+</script>
+</body>
+</html>

@@ -68,7 +68,7 @@
 </head>
 <body>
 <div class="header">
-    <h1>🎤 HB音声入力 実地テスト</h1>
+    <h1>🎤 HB音声入力 実地テスト <span style="font-size:10px; color:#888;">v2</span></h1>
     <p>体育館の騒音下で音声認識がどこまで使えるかを実測するツール</p>
 </div>
 <div class="container">
@@ -80,8 +80,10 @@
         <div class="talk-area">
             <button id="talk-btn">押している間<br>だけ話す</button>
             <div class="talk-hint">ボタンを押しながら発話 → 離すと認識結果が出ます</div>
+            <div class="talk-hint" style="color:var(--danger); font-weight:bold;">⚠️ LINEやアプリ内のブラウザでは動きません。SafariまたはChrome本体で開いてください</div>
         </div>
         <div id="live-transcript"></div>
+        <div id="error-guide" style="display:none; background:#FFE5E5; border:1px solid var(--danger); border-radius:8px; padding:10px; font-size:12px; margin-top:8px; line-height:1.7;"></div>
     </div>
 
     <div id="result-area"></div>
@@ -114,6 +116,11 @@
     <div class="card">
         <h2>📝 テスト履歴(直近20件)</h2>
         <div id="history"><div style="color:#aaa; padding:8px;">まだ記録がありません</div></div>
+    </div>
+
+    <div class="card">
+        <h2>🔧 診断情報(エラー報告時はこの欄をスクリーンショット)</h2>
+        <div id="diag-info" style="font-size:10px; color:#888; word-break:break-all; line-height:1.6;"></div>
     </div>
 
     <div class="card" style="font-size:11px; color:#666; line-height:1.7;">
@@ -175,7 +182,9 @@
     // ===== 音声認識まわり =====
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     const talkBtn = document.getElementById('talk-btn');
+    const IS_IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     let rec = null, finalText = '', interimText = '', releaseTime = 0, resultShown = false;
+    let micReady = false, lastError = '(なし)';
 
     if (!SR) {
         document.getElementById('unsupported').style.display = 'block';
@@ -184,13 +193,62 @@
     function checkOnline() { document.getElementById('env-warning').style.display = navigator.onLine ? 'none' : 'block'; }
     window.addEventListener('online', checkOnline); window.addEventListener('offline', checkOnline); checkOnline();
 
-    function startListening() {
+    // エラーコード別の日本語ガイド
+    const ERROR_GUIDE = {
+        'not-allowed': '<b>マイクの使用が許可されていません。</b><br>・許可ダイアログが出たら「許可」を選んでください<br>・過去に「許可しない」を選んだ場合: <b>iPhone</b>は 設定→アプリ→Safari→「マイク」を確認 or Safariのアドレスバー左の「ぁあ」→Webサイトの設定→マイクを「許可」 / <b>Android</b>はアドレスバーの鍵マーク→権限→マイクを許可<br>・LINEやアプリ内ブラウザで開いている場合はマイクが使えません。URLをコピーしてSafari/Chrome本体で開き直してください',
+        'service-not-allowed': '<b>端末側で音声認識サービスが無効になっています。</b><br><b>iPhoneの場合</b>: 設定→一般→キーボード→<b>「音声入力」をON</b>にしてください(SafariのSpeech APIはこの設定を使います)。あわせて 設定→Siriと検索 のSiriをONにすると確実です',
+        'network': '<b>音声認識サーバーに接続できません。</b><br>Android/PCのChromeはGoogleのサーバーで認識するため、インターネット接続(Wi-Fi/モバイル通信)が必要です。電波状況を確認してください',
+        'audio-capture': '<b>マイクが見つかりません。</b><br>他のアプリ(通話・録音等)がマイクを使用中でないか確認してください',
+        'language-not-supported': '<b>このブラウザは日本語認識に未対応です。</b><br>別のブラウザ(Chrome/Safari)でお試しください',
+    };
+    function showErrorGuide(code) {
+        lastError = code + ' (' + new Date().toLocaleTimeString('ja-JP') + ')';
+        renderDiag();
+        const g = ERROR_GUIDE[code];
+        const box = document.getElementById('error-guide');
+        if (g) { box.innerHTML = '⚠️ エラー: <b>' + code + '</b><br>' + g; box.style.display = 'block'; }
+        else if (code !== 'no-speech' && code !== 'aborted') { box.innerHTML = '⚠️ エラー: <b>' + code + '</b><br>下の診断情報をスクリーンショットして開発側に共有してください'; box.style.display = 'block'; }
+    }
+    function renderDiag() {
+        document.getElementById('diag-info').innerHTML =
+            '音声認識API: ' + (SR ? '対応 (' + (window.SpeechRecognition ? 'SpeechRecognition' : 'webkitSpeechRecognition') + ')' : '<b style="color:red">非対応</b>')
+            + '<br>マイク事前許可: ' + (micReady ? '取得済み' : '未取得')
+            + '<br>最後のエラー: ' + lastError
+            + '<br>接続: ' + (navigator.onLine ? 'オンライン' : '<b style="color:red">オフライン</b>')
+            + '<br>URL方式: ' + location.protocol + (window.isSecureContext ? ' (セキュア)' : ' <b style="color:red">(非セキュア: マイク不可)</b>')
+            + '<br>UA: ' + navigator.userAgent;
+    }
+    renderDiag();
+
+    // 初回タップ時にgetUserMediaでマイク許可を明示的に取得(SpeechRecognition単体より許可ダイアログが確実に出る)
+    async function ensureMic() {
+        if (micReady) return true;
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { micReady = true; return true; } // 旧環境はスキップして直接SRに任せる
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            stream.getTracks().forEach(t => t.stop());
+            micReady = true; renderDiag();
+            document.getElementById('error-guide').style.display = 'none';
+            return true;
+        } catch (err) {
+            showErrorGuide(err.name === 'NotFoundError' ? 'audio-capture' : 'not-allowed');
+            return false;
+        }
+    }
+
+    let isPressed = false;
+    async function startListening() {
         if (!SR || rec) return;
+        isPressed = true;
+        talkBtn.classList.add('listening'); talkBtn.innerHTML = '👂 認識中…';
+        const ok = await ensureMic();
+        // 許可ダイアログ操作中に指が離れていたら開始しない(初回タップは許可取得のみで終わる)
+        if (!ok || !isPressed) { talkBtn.classList.remove('listening'); talkBtn.innerHTML = '押している間<br>だけ話す'; return; }
         finalText = ''; interimText = ''; resultShown = false;
         rec = new SR();
         rec.lang = 'ja-JP';
         rec.interimResults = true;
-        rec.continuous = true;
+        rec.continuous = !IS_IOS; // iOS Safariはcontinuous=trueに不具合があるためOFF
         rec.onresult = (e) => {
             interimText = '';
             for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -199,14 +257,12 @@
             }
             document.getElementById('live-transcript').innerText = '「' + (finalText + interimText) + '」';
         };
-        rec.onerror = (e) => {
-            if (e.error === 'no-speech') return;
-            document.getElementById('live-transcript').innerText = '⚠️ エラー: ' + e.error + (e.error === 'not-allowed' ? ' (マイク許可が必要です。file://で開いている場合はlocalhost経由で開いてください)' : '');
-        };
+        rec.onerror = (e) => { showErrorGuide(e.error); };
         rec.onend = () => { rec = null; showResult(); };
-        try { rec.start(); talkBtn.classList.add('listening'); talkBtn.innerHTML = '👂 認識中…'; document.getElementById('live-transcript').innerText = ''; } catch(err) {}
+        try { rec.start(); document.getElementById('live-transcript').innerText = ''; } catch(err) { showErrorGuide('start-failed: ' + err.message); }
     }
     function stopListening() {
+        isPressed = false;
         talkBtn.classList.remove('listening');
         talkBtn.innerHTML = '押している間<br>だけ話す';
         releaseTime = performance.now();

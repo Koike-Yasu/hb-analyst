@@ -104,11 +104,18 @@
     #ed-court { position:relative; width:100%; aspect-ratio:3/2; background:#2E7D46; border-radius:8px; overflow:hidden; }
     #ed-court svg { position:absolute; inset:0; width:100%; height:100%; }
     #ed-marker { position:absolute; width:14px; height:14px; border-radius:50%; background:var(--warning); border:2px solid white; transform:translate(-50%,-50%); display:none; }
-    .goal-grid { display:grid; grid-template-columns:repeat(5,1fr); grid-template-rows:repeat(4,1fr); gap:2px; height:170px; background:#222; border:3px solid #444; border-radius:6px; padding:3px; }
-    .gg-cell { display:flex; align-items:center; justify-content:center; font-size:9px; font-weight:bold; color:#999; border-radius:2px; cursor:pointer; }
-    .gg-cell.goal { background:rgba(255,255,255,0.13); border:1px solid rgba(255,255,255,0.5); color:#eee; }
-    .gg-cell.out { background:rgba(255,255,255,0.04); border:1px dashed rgba(255,255,255,0.25); }
-    .gg-cell.on { background:var(--warning); color:#000; }
+    /* ハンドボールゴール: 赤白バー+ネット */
+    .goal-grid { display:grid; grid-template-columns:1fr 10px 1fr 1fr 1fr 10px 1fr; grid-template-rows:1fr 10px 1fr 1fr 1fr; gap:2px; height:195px; background:#2b3036; border-radius:6px 6px 0 0; padding:4px 4px 0; border-bottom:7px solid #b98a4a; }
+    .bar-h { background:repeating-linear-gradient(90deg, #D6342C 0 22px, #fff 22px 44px); border-radius:2px; box-shadow:0 1px 2px rgba(0,0,0,0.5); }
+    .bar-v { background:repeating-linear-gradient(180deg, #D6342C 0 22px, #fff 22px 44px); border-radius:2px; box-shadow:1px 0 2px rgba(0,0,0,0.5); }
+    .gg-cell { display:flex; align-items:center; justify-content:center; font-size:9px; font-weight:bold; border-radius:2px; cursor:pointer; }
+    .gg-cell.goal { color:#ddd; border:none;
+        background:
+        repeating-linear-gradient(0deg, rgba(255,255,255,0.16) 0 1px, transparent 1px 7px),
+        repeating-linear-gradient(90deg, rgba(255,255,255,0.16) 0 1px, transparent 1px 7px),
+        #1d2126; }
+    .gg-cell.out { background:rgba(255,255,255,0.05); border:1px dashed rgba(255,255,255,0.22); color:#8a8f94; }
+    .gg-cell.on { background:var(--warning) !important; color:#000 !important; }
     .ed-save { width:100%; border:none; background:var(--primary); color:white; border-radius:10px; padding:13px; font-size:14px; font-weight:bold; cursor:pointer; margin-top:14px; }
     .ed-del { width:100%; border:none; background:none; color:var(--danger); padding:10px; font-size:12px; font-weight:bold; cursor:pointer; }
     .q-row { background:white; border-radius:10px; padding:10px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center; font-size:12px; cursor:pointer; }
@@ -245,9 +252,19 @@
         <div id="ed-court">
             <svg viewBox="0 0 300 200">
                 <rect x="1" y="1" width="298" height="198" fill="none" stroke="white" stroke-width="2"/>
-                <rect x="120" y="0" width="60" height="5" fill="white"/>
-                <path d="M 90,2 A 60 60 0 0 0 210,2" fill="none" stroke="white" stroke-width="2"/>
-                <path d="M 60,2 A 90 90 0 0 0 240,2" fill="none" stroke="white" stroke-width="1.5" stroke-dasharray="5,5"/>
+                <!-- ゴール(3m幅・赤白バー) -->
+                <rect x="127.5" y="0" width="45" height="6" fill="white"/>
+                <rect x="127.5" y="0" width="15" height="6" fill="#D6342C"/>
+                <rect x="157.5" y="0" width="15" height="6" fill="#D6342C"/>
+                <!-- 6mライン(ゴールエリア): 両ポスト中心の四分円+直線 -->
+                <path d="M 37.5,0 A 90 90 0 0 0 127.5,90 L 172.5,90 A 90 90 0 0 0 262.5,0" fill="none" stroke="white" stroke-width="2"/>
+                <!-- 9mライン(フリースローライン・破線) -->
+                <path d="M -7.5,0 A 135 135 0 0 0 127.5,135 L 172.5,135 A 135 135 0 0 0 307.5,0" fill="none" stroke="white" stroke-width="1.5" stroke-dasharray="6,5"/>
+                <!-- 7mライン -->
+                <line x1="142.5" y1="105" x2="157.5" y2="105" stroke="white" stroke-width="2.5"/>
+                <text x="150" y="84" fill="rgba(255,255,255,0.75)" font-size="10" text-anchor="middle">6m</text>
+                <text x="163" y="109" fill="rgba(255,255,255,0.75)" font-size="9">7m</text>
+                <text x="150" y="150" fill="rgba(255,255,255,0.75)" font-size="10" text-anchor="middle">9m</text>
                 <line x1="1" y1="198" x2="299" y2="198" stroke="white" stroke-width="2"/>
             </svg>
             <div id="ed-marker"></div>
@@ -558,15 +575,18 @@ function openEditor(id) {
     // コースグリッド
     const gg = document.getElementById('ed-goal-grid');
     gg.innerHTML = '';
-    for (let r = 1; r <= 4; r++) for (let c = 1; c <= 5; c++) {
-        const cell = ALL_COURSES.find(x => x.r === r && x.c === c);
+    // 赤白バー(クロスバー+両ポスト)。グリッドは7列×5行: [外|ポスト|ゴール×3|ポスト|外]
+    const bar = (row, col, cls) => { const d = document.createElement('div'); d.className = cls; d.style.gridRow = row; d.style.gridColumn = col; gg.appendChild(d); };
+    bar('2', '2 / 7', 'bar-h');
+    bar('3 / 6', '2', 'bar-v');
+    bar('3 / 6', '6', 'bar-v');
+    for (const cell of ALL_COURSES) {
         const d = document.createElement('div');
-        if (cell) {
-            d.className = 'gg-cell ' + cell.t + (edState.course === cell.id ? ' on' : '');
-            d.innerText = cell.id;
-            d.onclick = () => { edState.course = cell.id; openEditorRefreshGrid(); };
-        } else d.style.background = 'transparent';
-        d.style.gridRow = r; d.style.gridColumn = c;
+        d.className = 'gg-cell ' + cell.t + (edState.course === cell.id ? ' on' : '');
+        d.innerText = cell.id;
+        d.onclick = () => { edState.course = cell.id; openEditorRefreshGrid(); };
+        d.style.gridRow = cell.r === 1 ? 1 : cell.r + 1;
+        d.style.gridColumn = cell.c === 1 ? 1 : (cell.c === 5 ? 7 : cell.c + 1);
         gg.appendChild(d);
     }
     document.getElementById('editor-modal').style.display = 'flex';

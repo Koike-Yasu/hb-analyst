@@ -41,6 +41,7 @@
     .chip.action { background:var(--danger); }
     .chip.course { background:var(--success); }
     .chip.phase  { background:var(--warning); }
+    .chip.pos    { background:#AF52DE; }
     .chip.none   { background:#bbb; }
     .latency { font-size:10px; color:#888; margin-bottom:8px; }
     .judge-row { display:flex; gap:6px; }
@@ -68,7 +69,7 @@
 </head>
 <body>
 <div class="header">
-    <h1>🎤 HB音声入力 実地テスト <span style="font-size:10px; color:#888;">v4</span></h1>
+    <h1>🎤 HB音声入力 実地テスト <span style="font-size:10px; color:#888;">v5</span></h1>
     <p>体育館の騒音下で音声認識がどこまで使えるかを実測するツール</p>
 </div>
 <div class="container">
@@ -103,9 +104,12 @@
         <h2>🗣️ テスト用の読み上げフレーズ例(本番想定の語彙)</h2>
         <div class="phrase-list">
             <code>6番 得点 右下</code> … シュート成功+コース<br>
+            <code>ウィング 6番 得点 右下</code> … 位置込みフル入力<br>
+            <code>ポスト 8番 セーブ</code> … 位置+GK阻止<br>
             <code>12番 セーブ</code> … GK阻止<br>
             <code>3番 枠外</code> … シュートミス<br>
             <code>速攻 7番 得点 左上</code> … フェーズ込み<br>
+            <code>セブンメーター 7番 得点</code> … 7mスロー<br>
             <code>5番 パスミス</code> … ターンオーバー<br>
             <code>9番 スチール</code> … ボール奪取<br>
             <code>タイムアウト</code> … 単語のみ<br>
@@ -116,6 +120,17 @@
     <div class="card">
         <h2>📝 テスト履歴(直近20件)</h2>
         <div id="history"><div style="color:#aaa; padding:8px;">まだ記録がありません</div></div>
+    </div>
+
+    <div class="card">
+        <h2>🎓 学習辞書(チームのローカル用語・誤認識をここで教える)</h2>
+        <div style="font-size:11px; color:#666; line-height:1.6; margin-bottom:8px;">「エース→7番」のようなチーム内の呼び方や、「側溝→速攻」のような誤認識の癖を登録すると、次の認識から自動で読み替えます(この端末に保存)。</div>
+        <div style="display:flex; gap:6px; margin-bottom:8px;">
+            <input id="alias-word" placeholder="聞こえた言葉/呼び方 (例:エース)" style="flex:1.2; min-width:0; padding:8px; border:1px solid #ccc; border-radius:6px; font-size:12px;">
+            <select id="alias-canon" style="flex:1; min-width:0; padding:8px; border:1px solid #ccc; border-radius:6px; font-size:12px;"></select>
+        </div>
+        <button onclick="addAlias()" style="width:100%; padding:8px; background:var(--primary); color:white; border:none; border-radius:6px; font-weight:bold; font-size:12px; cursor:pointer;">＋ 辞書に追加</button>
+        <div id="alias-list" style="margin-top:8px; font-size:12px;"></div>
     </div>
 
     <div class="card">
@@ -154,10 +169,22 @@
     ];
     const COURSE_DICT = ['右下','右中','右上','左下','左中','左上','中央','中上','中下'];
     const PHASE_DICT = [
-        { key:'速攻', words:['速攻','そっこう','側溝'] },
+        { key:'2次速攻', words:['2次','二次'] },
+        { key:'1次速攻', words:['1次','一次','速攻','そっこう','側溝'] },
         { key:'セット', words:['セット'] },
+        { key:'7m', words:['7メートル','セブンメーター','セブンメートル','7m','7M'] },
         { key:'7人攻撃', words:['7人','七人'] },
     ];
+    // シュート位置(本番ツールの4ボタンに対応)
+    const POS_DICT = [
+        { key:'9m/ミドル', words:['9メートル','9m','9M','ミドル','ロング','45度','左45','右45'] },
+        { key:'ウィング', words:['ウィング','ウイング','サイド'] },
+        { key:'ポスト', words:['ポスト','ピボット'] },
+        { key:'突破/カットイン', words:['突破','カットイン','切り込み'] },
+    ];
+    // 学習辞書(この端末に保存されるチーム独自の読み替え)
+    let customAliases = JSON.parse(localStorage.getItem('hb-voice-custom-aliases') || '[]');
+    function saveAliases() { localStorage.setItem('hb-voice-custom-aliases', JSON.stringify(customAliases)); }
 
     // 漢数字→算用数字(選手番号1〜16用)
     function kanjiToNum(k) {
@@ -170,26 +197,38 @@
     function parseTranscript(raw) {
         let text = raw.replace(/\s+/g, '');
         // Android認識エンジンの結果重複(「6番6番6番」等)を圧縮
-        text = text.replace(/(.{1,12}?)\1{1,}/g, '$1');
+        // 繰り返し単位は2文字以上に限定(1文字にすると「11番」が「1番」に潰れる)
+        text = text.replace(/(.{2,12}?)\1{1,}/g, '$1');
+        // 学習辞書(チームのローカル用語・誤認識)を正規の言葉へ読み替え(長い語から優先)
+        for (const a of [...customAliases].sort((x, y) => y.word.length - x.word.length)) {
+            if (a.word) text = text.split(a.word).join(a.canon);
+        }
         // 実測で確認された音の似た誤認識を正規化
         text = text.replace(/キューバ/g, '9番');
         text = text.replace(/千葉/g, '9番');
         text = text.replace(/([一二三四五六七八九十]{1,2})番/g, (m, k) => kanjiToNum(k) + '番');
-        const out = { player:null, action:null, course:null, phase:null };
-        // フェーズ(「7人」を選手番号と誤爆させないため先に判定して除去した文字列で番号を探す)
+        const out = { player:null, action:null, course:null, phase:null, pos:null };
+        // 数字を含む語(「2次」「9m」「2分」等)を番号検索から除くため、マッチした辞書語を除去していく
         let numSearchText = text;
+        const consume = (words) => { words.forEach(w => { numSearchText = numSearchText.split(w.replace(/\s+/g,'')).join(''); }); };
+        // フェーズ
         for (const p of PHASE_DICT) {
-            if (p.words.some(w => text.includes(w.replace(/\s+/g,'')))) { out.phase = p.key; p.words.forEach(w => { numSearchText = numSearchText.split(w.replace(/\s+/g,'')).join(''); }); break; }
+            if (p.words.some(w => text.includes(w.replace(/\s+/g,'')))) { out.phase = p.key; consume(p.words); break; }
         }
-        // アクション(2分退場の「2」も番号誤爆源なので該当語を除去)
+        // シュート位置
+        for (const p of POS_DICT) {
+            if (p.words.some(w => text.includes(w.replace(/\s+/g,'')))) { out.pos = p.key; consume(p.words); break; }
+        }
+        // アクション
         for (const a of ACTION_DICT) {
-            if (a.words.some(w => text.includes(w.replace(/\s+/g,'')))) { out.action = a.key; a.words.forEach(w => { numSearchText = numSearchText.split(w.replace(/\s+/g,'')).join(''); }); break; }
+            if (a.words.some(w => text.includes(w.replace(/\s+/g,'')))) { out.action = a.key; consume(a.words); break; }
         }
         // コース
         for (const c of COURSE_DICT) { if (text.includes(c)) { out.course = c; break; } }
-        // 選手番号(1〜16)
-        const m = numSearchText.match(/(\d{1,2})\s*番?/);
-        if (m) { const n = parseInt(m[1], 10); if (n >= 1 && n <= 16) out.player = n; }
+        // 選手番号(1〜16): 「N番」表記を優先し、なければ残った数字から拾う
+        let nums = [...numSearchText.matchAll(/(\d{1,2})番/g)].map(x => parseInt(x[1], 10)).filter(n => n >= 1 && n <= 16);
+        if (!nums.length) nums = [...numSearchText.matchAll(/(\d{1,2})/g)].map(x => parseInt(x[1], 10)).filter(n => n >= 1 && n <= 16);
+        if (nums.length) out.player = nums[0];
         return out;
     }
 
@@ -300,6 +339,7 @@
         const parsed = parseTranscript(raw);
         const chips = [];
         if (parsed.phase) chips.push(`<span class="chip phase">${parsed.phase}</span>`);
+        if (parsed.pos) chips.push(`<span class="chip pos">${parsed.pos}</span>`);
         if (parsed.player) chips.push(`<span class="chip player">#${parsed.player}</span>`);
         if (parsed.action) chips.push(`<span class="chip action">${parsed.action}</span>`);
         if (parsed.course) chips.push(`<span class="chip course">${parsed.course}</span>`);
@@ -317,6 +357,7 @@
                     <button class="j-ng" onclick="judge('ng','${escapeQ(raw)}')">❌ 誤認識</button>
                     <button class="j-silent" onclick="judge('silent','${escapeQ(raw)}')">🔇 無反応</button>
                 </div>
+                <button onclick="prefillAlias('${escapeQ(raw)}')" style="width:100%; margin-top:6px; padding:7px; background:none; border:1px dashed #AF52DE; color:#AF52DE; border-radius:6px; font-size:11px; font-weight:bold; cursor:pointer;">🎓 この認識結果を学習辞書に登録する</button>
             </div>`;
     }
     function escapeQ(s) { return s.replace(/\\/g,'\\\\').replace(/'/g, "\\'").replace(/"/g,'&quot;'); }
@@ -349,6 +390,44 @@
         renderTally();
     }
     renderTally();
+
+    // ===== 学習辞書UI =====
+    function initAliasUI() {
+        const sel = document.getElementById('alias-canon');
+        const groups = [
+            ['選手番号', Array.from({length:16}, (_, i) => (i+1) + '番')],
+            ['アクション', ['得点','セーブ','枠外','パスミス','キャッチ','オーバー','ラインクロス','スチール','ブロック','アシスト','チャージ','タイムアウト','警告','退場','失格']],
+            ['シュート位置', ['ミドル','ウィング','ポスト','突破']],
+            ['フェーズ', ['1次','2次','セット','7メートル','7人']],
+            ['ゴールコース', COURSE_DICT],
+        ];
+        sel.innerHTML = groups.map(([label, arr]) => `<optgroup label="${label}">` + arr.map(v => `<option value="${v}">${v}</option>`).join('') + '</optgroup>').join('');
+        renderAliasList();
+    }
+    function addAlias() {
+        const word = document.getElementById('alias-word').value.trim().replace(/\s+/g, '');
+        const canon = document.getElementById('alias-canon').value;
+        if (!word) { alert('「聞こえた言葉/呼び方」を入力してください'); return; }
+        customAliases = customAliases.filter(a => a.word !== word);
+        customAliases.push({ word: word, canon: canon });
+        saveAliases();
+        document.getElementById('alias-word').value = '';
+        renderAliasList();
+    }
+    function deleteAlias(idx) { customAliases.splice(idx, 1); saveAliases(); renderAliasList(); }
+    function renderAliasList() {
+        const el = document.getElementById('alias-list');
+        el.innerHTML = customAliases.length === 0
+            ? '<div style="color:#aaa;">登録なし(側溝→速攻、千葉/キューバ→9番などの誤認識対策は標準辞書に内蔵済み)</div>'
+            : customAliases.map((a, i) => `<div style="display:flex; justify-content:space-between; align-items:center; padding:5px 4px; border-bottom:1px solid #eee;"><span>「${a.word}」 → <b>${a.canon}</b></span><button onclick="deleteAlias(${i})" style="background:none; border:none; color:var(--danger); font-size:14px; cursor:pointer;">🗑️</button></div>`).join('');
+    }
+    function prefillAlias(raw) {
+        const input = document.getElementById('alias-word');
+        input.value = raw;
+        input.scrollIntoView({ behavior:'smooth', block:'center' });
+        input.focus();
+    }
+    initAliasUI();
 </script>
 </body>
 </html>

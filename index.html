@@ -68,7 +68,7 @@
 </head>
 <body>
 <div class="header">
-    <h1>🎤 HB音声入力 実地テスト <span style="font-size:10px; color:#888;">v3</span></h1>
+    <h1>🎤 HB音声入力 実地テスト <span style="font-size:10px; color:#888;">v4</span></h1>
     <p>体育館の騒音下で音声認識がどこまで使えるかを実測するツール</p>
 </div>
 <div class="container">
@@ -154,7 +154,7 @@
     ];
     const COURSE_DICT = ['右下','右中','右上','左下','左中','左上','中央','中上','中下'];
     const PHASE_DICT = [
-        { key:'速攻', words:['速攻','そっこう'] },
+        { key:'速攻', words:['速攻','そっこう','側溝'] },
         { key:'セット', words:['セット'] },
         { key:'7人攻撃', words:['7人','七人'] },
     ];
@@ -169,8 +169,11 @@
 
     function parseTranscript(raw) {
         let text = raw.replace(/\s+/g, '');
+        // Android認識エンジンの結果重複(「6番6番6番」等)を圧縮
+        text = text.replace(/(.{1,12}?)\1{1,}/g, '$1');
         // 実測で確認された音の似た誤認識を正規化
         text = text.replace(/キューバ/g, '9番');
+        text = text.replace(/千葉/g, '9番');
         text = text.replace(/([一二三四五六七八九十]{1,2})番/g, (m, k) => kanjiToNum(k) + '番');
         const out = { player:null, action:null, course:null, phase:null };
         // フェーズ(「7人」を選手番号と誤爆させないため先に判定して除去した文字列で番号を探す)
@@ -259,7 +262,7 @@
         rec = new SR();
         rec.lang = 'ja-JP';
         rec.interimResults = true;
-        rec.continuous = !IS_IOS; // iOS Safariはcontinuous=trueに不具合があるためOFF
+        rec.continuous = false; // 全端末OFF: Androidは結果重複、iOSは不具合の既知原因。短い発話+押下中の猶予で十分
         rec.onresult = (e) => {
             // 毎回結果リスト全体から組み立て直す(累積方式はAndroidで結果が重複するため)
             finalText = ''; interimText = '';

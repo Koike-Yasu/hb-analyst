@@ -42,6 +42,7 @@
     .chip.course { background:var(--success); }
     .chip.phase  { background:var(--warning); }
     .chip.pos    { background:#AF52DE; }
+    .chip.control{ background:#1c1c1e; }
     .chip.none   { background:#bbb; }
     .latency { font-size:10px; color:#888; margin-bottom:8px; }
     .judge-row { display:flex; gap:6px; }
@@ -69,7 +70,7 @@
 </head>
 <body>
 <div class="header">
-    <h1>🎤 HB音声入力 実地テスト <span style="font-size:10px; color:#888;">v5</span></h1>
+    <h1>🎤 HB音声入力 実地テスト <span style="font-size:10px; color:#888;">v6</span></h1>
     <p>体育館の騒音下で音声認識がどこまで使えるかを実測するツール</p>
 </div>
 <div class="container">
@@ -113,8 +114,11 @@
             <code>5番 パスミス</code> … ターンオーバー<br>
             <code>9番 スチール</code> … ボール奪取<br>
             <code>タイムアウト</code> … 単語のみ<br>
-            <code>4番 2分退場</code> … ペナルティ
+            <code>4番 2分退場</code> … ペナルティ<br>
+            <code>試合開始</code> / <code>前半終了</code> … 試合コントロール<br>
+            <code>ポスト 8番 得点 股下</code> … 股下=中下コース
         </div>
+        <div style="font-size:10px; color:#888; margin-top:6px; line-height:1.6;">※シュートは「シュート」ではなく<b>結果の言葉(得点/セーブ/枠外)</b>で言うのがコツ。GKのセーブは番号なしでもOK(本番ではオンコートGKに自動帰属)。</div>
     </div>
 
     <div class="card">
@@ -154,7 +158,7 @@
         { key:'得点', words:['得点','ゴール','とくてん','特典'] },
         { key:'セーブ', words:['セーブ','阻止','キーパー','西部','西武','セイブ','西'] },
         { key:'枠外', words:['枠外','わくがい','枠の外','枠'] },
-        { key:'パスミス', words:['パスミス','パス ミス','パスミ'] },
+        { key:'パスミス', words:['パスミス','パス ミス','パスミ','バスミス'] },
         { key:'キャッチ', words:['キャッチ'] },
         { key:'オーバー', words:['オーバー'] },
         { key:'ラインクロス', words:['ラインクロス','クロス'] },
@@ -179,8 +183,15 @@
     const POS_DICT = [
         { key:'9m/ミドル', words:['9メートル','9m','9M','ミドル','ロング','45度','左45','右45'] },
         { key:'ウィング', words:['ウィング','ウイング','サイド'] },
-        { key:'ポスト', words:['ポスト','ピボット'] },
+        { key:'ポスト', words:['ポスト','ピボット','ホスト'] },
         { key:'突破/カットイン', words:['突破','カットイン','切り込み'] },
+    ];
+    // 試合コントロール(タイマー操作・試合区切りの音声コマンド)
+    const CONTROL_DICT = [
+        { key:'試合開始', words:['試合開始','ゲーム開始'] },
+        { key:'前半終了', words:['前半終了','ハーフタイム'] },
+        { key:'後半開始', words:['後半開始'] },
+        { key:'試合終了', words:['試合終了','ゲームセット','フルタイム'] },
     ];
     // 学習辞書(この端末に保存されるチーム独自の読み替え)
     let customAliases = JSON.parse(localStorage.getItem('hb-voice-custom-aliases') || '[]');
@@ -204,10 +215,17 @@
             if (a.word) text = text.split(a.word).join(a.canon);
         }
         // 実測で確認された音の似た誤認識を正規化
+        text = text.replace(/ゴールキーパー/g, 'キーパー'); // 「ゴール」(得点)との誤マッチ防止
         text = text.replace(/キューバ/g, '9番');
         text = text.replace(/千葉/g, '9番');
+        text = text.replace(/また明日|股下|またした/g, '中下');
+        text = text.replace(/ど真ん中|真ん中/g, '中央');
         text = text.replace(/([一二三四五六七八九十]{1,2})番/g, (m, k) => kanjiToNum(k) + '番');
-        const out = { player:null, action:null, course:null, phase:null, pos:null };
+        const out = { player:null, action:null, course:null, phase:null, pos:null, control:null };
+        // 試合コントロール(該当したら単独コマンドとして扱う)
+        for (const c of CONTROL_DICT) {
+            if (c.words.some(w => text.includes(w))) { out.control = c.key; return out; }
+        }
         // 数字を含む語(「2次」「9m」「2分」等)を番号検索から除くため、マッチした辞書語を除去していく
         let numSearchText = text;
         const consume = (words) => { words.forEach(w => { numSearchText = numSearchText.split(w.replace(/\s+/g,'')).join(''); }); };
@@ -225,9 +243,9 @@
         }
         // コース
         for (const c of COURSE_DICT) { if (text.includes(c)) { out.course = c; break; } }
-        // 選手番号(1〜16): 「N番」表記を優先し、なければ残った数字から拾う
-        let nums = [...numSearchText.matchAll(/(\d{1,2})番/g)].map(x => parseInt(x[1], 10)).filter(n => n >= 1 && n <= 16);
-        if (!nums.length) nums = [...numSearchText.matchAll(/(\d{1,2})/g)].map(x => parseInt(x[1], 10)).filter(n => n >= 1 && n <= 16);
+        // 選手番号(1〜99: 相手チームの背番号は16を超えるため): 「N番」表記を優先し、なければ残った数字から拾う
+        let nums = [...numSearchText.matchAll(/(\d{1,2})番/g)].map(x => parseInt(x[1], 10)).filter(n => n >= 1 && n <= 99);
+        if (!nums.length) nums = [...numSearchText.matchAll(/(\d{1,2})/g)].map(x => parseInt(x[1], 10)).filter(n => n >= 1 && n <= 99);
         if (nums.length) out.player = nums[0];
         return out;
     }
@@ -338,6 +356,7 @@
         const latency = releaseTime ? Math.round(performance.now() - releaseTime) : 0;
         const parsed = parseTranscript(raw);
         const chips = [];
+        if (parsed.control) chips.push(`<span class="chip control">⏱ ${parsed.control}</span>`);
         if (parsed.phase) chips.push(`<span class="chip phase">${parsed.phase}</span>`);
         if (parsed.pos) chips.push(`<span class="chip pos">${parsed.pos}</span>`);
         if (parsed.player) chips.push(`<span class="chip player">#${parsed.player}</span>`);

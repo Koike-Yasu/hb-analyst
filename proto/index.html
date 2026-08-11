@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>熊本HBアナリスト v2 プロトタイプ</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
     :root { --primary:#007AFF; --danger:#FF3B30; --success:#34C759; --warning:#FF9500; --purple:#AF52DE; --ink:#1c1c1e; --bg:#F2F2F7; }
     * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
@@ -122,6 +123,14 @@
     .empty-note { color:#999; font-size:12px; text-align:center; padding:20px 0; }
 
     .alpha-note { margin:0 10px 10px; font-size:10px; color:#999; line-height:1.6; }
+
+    /* 即席レポート */
+    .rep-sec { margin-bottom:14px; }
+    .rep-sec h3 { font-size:13px; margin:0 0 5px; }
+    .rep-sec table { width:100%; border-collapse:collapse; font-size:11px; }
+    .rep-sec th, .rep-sec td { border:1px solid #e2e2e6; padding:4px 6px; text-align:center; }
+    .rep-sec td:first-child { text-align:left; }
+    .rep-sec th { background:#f4f4f6; }
 </style>
 </head>
 <body>
@@ -133,6 +142,7 @@
             <button id="mode-scout" onclick="setMode('scout')">🔭 相手偵察</button>
         </div>
         <div style="display:flex; gap:6px;">
+            <button class="hdr-menu" style="background:var(--warning); border-color:var(--warning); font-weight:bold;" onclick="openReport()">📊 レポ</button>
             <button class="hdr-menu" onclick="openMembers()">👥 選手</button>
             <button class="hdr-menu" onclick="exportGame()">⤓ 保存</button>
         </div>
@@ -274,6 +284,23 @@
         <div class="goal-grid" id="ed-goal-grid"></div>
         <button class="ed-save" onclick="saveEditor()">保存</button>
         <button class="ed-del" onclick="deleteFromEditor()">🗑️ この記録を削除</button>
+    </div>
+</div>
+
+<!-- 即席レポートモーダル(ハーフタイム用) -->
+<div class="modal" id="report-modal">
+    <div class="modal-inner" style="background:white;">
+        <h2>📊 即席レポート <button class="m-close" onclick="closeModal('report-modal')">閉じる</button></h2>
+        <div class="chip-row">
+            <button class="selchip" id="rh-前半" onclick="renderReport('前半')">前半</button>
+            <button class="selchip" id="rh-後半" onclick="renderReport('後半')">後半</button>
+            <button class="selchip" id="rh-all" onclick="renderReport('all')">全体</button>
+        </div>
+        <div id="report-body"></div>
+        <div style="display:flex; gap:8px; margin-top:12px;">
+            <button class="ed-save" style="margin-top:0; background:var(--success);" onclick="copyReportText()">📋 LINE用テキストをコピー</button>
+            <button class="ed-save" style="margin-top:0;" onclick="saveReportImage()">📷 画像で保存</button>
+        </div>
     </div>
 </div>
 
@@ -680,6 +707,171 @@ function exportGame() {
     if (confirm('保存しました。画面をリセットして新しい試合を始めますか?')) {
         S.log = []; S.seconds = 0; S.half = '前半'; stopTimer(); renderAll(); persist();
     }
+}
+
+// ================== 即席レポート(ハーフタイムの武器) ==================
+let repFilter = '前半';
+function openReport() { renderReport(S.half); document.getElementById('report-modal').style.display = 'flex'; }
+
+function repData(f) {
+    const L = S.log.filter(e => e.team !== 'CTRL' && (f === 'all' || e.half === f));
+    const T = {};
+    for (const t of ['自チーム', '相手']) {
+        const shots = L.filter(e => e.team === t && SHOTS.includes(e.type));
+        const goals = shots.filter(e => e.type === '得点').length;
+        T[t] = {
+            shots: shots.length, goals: goals,
+            rate: shots.length ? Math.round(goals / shots.length * 100) : 0,
+            to: L.filter(e => e.team === t && TO_TYPES.includes(e.type)).length,
+            saves: 0, against: 0, courses: {}, courseIn: 0,
+        };
+        for (const s of shots) {
+            if (s.course && !s.course.startsWith('外')) {
+                const c = T[t].courses[s.course] = T[t].courses[s.course] || { g: 0, s: 0 };
+                c.s++; if (s.type === '得点') c.g++;
+            }
+            if (s.course) T[t].courseIn++;
+        }
+    }
+    // GKスタッツ: 自GKの被弾=相手のシュート(セーブ+枠外を阻止として計上・旧ツール互換)
+    T['自チーム'].against = T['相手'].shots;
+    T['自チーム'].saves = L.filter(e => e.team === '相手' && ['セーブ', '枠外'].includes(e.type)).length;
+    T['相手'].against = T['自チーム'].shots;
+    T['相手'].saves = L.filter(e => e.team === '自チーム' && ['セーブ', '枠外'].includes(e.type)).length;
+    // 選手別(自チーム)
+    const pl = {};
+    for (const e of L.filter(x => x.team === '自チーム' && x.player && x.player !== 'チーム')) {
+        const p = pl[e.player] = pl[e.player] || { shots: 0, goals: 0, to: 0, as: 0, df: 0 };
+        if (SHOTS.includes(e.type)) { p.shots++; if (e.type === '得点') p.goals++; }
+        else if (TO_TYPES.includes(e.type)) p.to++;
+        else if (e.type === 'アシスト') p.as++;
+        else if (['スチール', 'シュートブロック'].includes(e.type)) p.df++;
+    }
+    // 相手シューター(番号未補完は「?」でまとめる)
+    const opp = {};
+    for (const e of L.filter(x => x.team === '相手' && SHOTS.includes(x.type))) {
+        const k = (e.player && e.player !== 'チーム') ? e.player : '?';
+        const p = opp[k] = opp[k] || { shots: 0, goals: 0 };
+        p.shots++; if (e.type === '得点') p.goals++;
+    }
+    // 速攻効率: 奪ってから20秒以内のシュート
+    let toChance = 0, toShot = 0, toGoal = 0;
+    for (let i = 0; i < L.length; i++) {
+        const e = L[i];
+        const isOppMiss = e.team === '相手' && TO_TYPES.includes(e.type);
+        const isSelfDF = e.team === '自チーム' && ['スチール', 'シュートブロック'].includes(e.type);
+        if (isOppMiss || isSelfDF) {
+            toChance++;
+            for (let j = i + 1; j < L.length; j++) {
+                const n = L[j];
+                if (n.half !== e.half || n.seconds - e.seconds > 20) break;
+                if (n.team === '自チーム' && SHOTS.includes(n.type)) { toShot++; if (n.type === '得点') toGoal++; break; }
+            }
+        }
+    }
+    // 5分刻み
+    const maxSec = Math.max(300, ...L.map(e => e.seconds), 0);
+    const blocks = [];
+    for (let b = 0; b * 300 <= maxSec; b++) {
+        const bl = L.filter(e => e.seconds >= b * 300 && e.seconds < (b + 1) * 300);
+        blocks.push({
+            label: `${b * 5}〜${b * 5 + 5}`,
+            sg: bl.filter(e => e.team === '自チーム' && e.type === '得点').length,
+            og: bl.filter(e => e.team === '相手' && e.type === '得点').length,
+            sm: bl.filter(e => e.team === '自チーム' && TO_TYPES.includes(e.type)).length,
+        });
+    }
+    return { T, pl, opp, toChance, toShot, toGoal, blocks };
+}
+
+// 3×3ミニゴール図(コース別ヒートマップ)
+const heatConcede = d => d.g > 0 ? 'rgba(255,59,48,' + Math.min(0.3 + d.g * 0.2, 0.9) + ')' : (d.s > 0 ? 'rgba(52,199,89,0.4)' : 'rgba(255,255,255,0.07)');
+const heatAttack = d => d.s === 0 ? 'rgba(255,255,255,0.07)' : (d.g > 0 ? 'rgba(52,199,89,' + Math.min(0.3 + (d.g / d.s) * 0.55, 0.9) + ')' : 'rgba(255,59,48,0.45)');
+function miniGoalGrid(cells, colorFn) {
+    const order = [['左上','中上','右上'], ['左中','中央','右中'], ['左下','中下','右下']];
+    let h = '<div style="display:grid; grid-template-columns:repeat(3,1fr); gap:2px; background:#2b3036; padding:4px; border-radius:8px; border:4px solid #c9c9cf;">';
+    for (const row of order) for (const id of row) {
+        const d = cells[id] || { g: 0, s: 0 };
+        h += `<div style="min-height:42px; display:flex; flex-direction:column; align-items:center; justify-content:center; border-radius:2px; background:${colorFn(d)};"><span style="font-size:9px; color:#ccc;">${id}</span><b style="font-size:12px; color:white;">${d.s ? d.g + '/' + d.s : '-'}</b></div>`;
+    }
+    return h + '</div>';
+}
+
+function renderReport(f) {
+    repFilter = f;
+    ['前半', '後半', 'all'].forEach(k => document.getElementById('rh-' + k).classList.toggle('on', k === f));
+    const { T, pl, opp, toChance, toShot, toGoal, blocks } = repData(f);
+    const s = T['自チーム'], o = T['相手'];
+    const selfName = S.teamNames['自チーム'], oppName = S.teamNames['相手'];
+    const gkRate = s.against ? Math.round(s.saves / s.against * 100) : 0;
+    const oppGkRate = o.against ? Math.round(o.saves / o.against * 100) : 0;
+    let h = `<div style="background:var(--ink); color:white; border-radius:10px; padding:10px; text-align:center; margin-bottom:12px;">
+        <div style="font-size:20px; font-weight:bold;">${selfName} ${s.goals} - ${o.goals} ${oppName}</div>
+        <div style="font-size:11px; color:#bbb;">シュート決定率 ${s.rate}% (${s.goals}/${s.shots}) ⇔ 相手 ${o.rate}% (${o.goals}/${o.shots})</div>
+    </div>`;
+    const plRows = Object.entries(pl).sort((a, b) => (b[1].shots + b[1].to) - (a[1].shots + a[1].to));
+    if (plRows.length) {
+        h += `<div class="rep-sec"><h3>⚔️ ${selfName} 選手別</h3><table><tr><th>選手</th><th>得点/本(率)</th><th>A</th><th>TO</th><th>DF</th></tr>`;
+        for (const [num, p] of plRows) {
+            const rr = p.shots ? Math.round(p.goals / p.shots * 100) : 0;
+            h += `<tr><td><b>#${num}</b> ${pName('自チーム', num)}</td><td>${p.shots ? p.goals + '/' + p.shots + ' (' + rr + '%)' : '-'}</td><td>${p.as || ''}</td><td style="color:${p.to >= 3 ? 'var(--danger)' : 'inherit'}; font-weight:${p.to >= 3 ? 'bold' : 'normal'};">${p.to || ''}</td><td>${p.df || ''}</td></tr>`;
+        }
+        h += '</table></div>';
+    }
+    h += `<div class="rep-sec"><h3>🧤 ${selfName}GK — セーブ率 ${gkRate}% (${s.saves}/${s.against})</h3>
+        <div style="font-size:10px; color:#888; margin-bottom:4px;">被弾コース: 赤いほど決められている(コース入力済み ${o.courseIn}/${o.shots}本)</div>
+        ${miniGoalGrid(o.courses, heatConcede)}</div>`;
+    const oppRows = Object.entries(opp).sort((a, b) => b[1].goals - a[1].goals).filter(([, p]) => p.goals > 0).slice(0, 5);
+    if (oppRows.length) {
+        h += `<div class="rep-sec"><h3>⚠️ ${oppName} 要注意シューター</h3><table><tr><th>背番号</th><th>得点/本</th></tr>`;
+        for (const [num, p] of oppRows) h += `<tr><td>#${num}</td><td>${p.goals}/${p.shots}</td></tr>`;
+        h += '</table></div>';
+    }
+    h += `<div class="rep-sec"><h3>🎯 ${oppName}GK攻略 — 相手セーブ率 ${oppGkRate}%</h3>
+        <div style="font-size:10px; color:#888; margin-bottom:4px;">緑=決まっているコース / 赤=止められているコース(コース入力済み ${s.courseIn}/${s.shots}本)</div>
+        ${miniGoalGrid(s.courses, heatAttack)}</div>`;
+    h += `<div class="rep-sec"><h3>⚡ ミスと速攻</h3>
+        <p style="font-size:12px; margin:0;">ターンオーバー: ${selfName} <b>${s.to}</b> 回 / ${oppName} <b>${o.to}</b> 回<br>
+        ボール奪取から20秒以内: チャンス <b>${toChance}</b> 回 → シュート <b>${toShot}</b> 本 → <b style="color:var(--danger);">${toGoal}</b> 点</p></div>`;
+    h += `<div class="rep-sec"><h3>⏱️ 5分ごとの流れ${f === 'all' ? '(前後半合算)' : ''}</h3><table><tr><th>分</th><th style="color:var(--primary);">自得点</th><th style="color:var(--danger);">相手</th><th>自ミス</th></tr>`;
+    for (const b of blocks) {
+        const bg = b.sg > b.og ? 'background:rgba(0,122,255,0.06);' : (b.sg < b.og ? 'background:rgba(255,59,48,0.06);' : '');
+        h += `<tr style="${bg}"><td>${b.label}</td><td>${b.sg}</td><td>${b.og}</td><td>${b.sm}</td></tr>`;
+    }
+    h += '</table></div>';
+    document.getElementById('report-body').innerHTML = h;
+}
+
+function buildReportText() {
+    const { T, opp, toChance, toGoal } = repData(repFilter);
+    const s = T['自チーム'], o = T['相手'];
+    const gkRate = s.against ? Math.round(s.saves / s.against * 100) : 0;
+    const lines = [];
+    lines.push(`【${repFilter === 'all' ? '全体' : repFilter}レポート】${S.teamNames['自チーム']} ${s.goals} - ${o.goals} ${S.teamNames['相手']}`);
+    lines.push(`■シュート: ${s.goals}/${s.shots}本(${s.rate}%) ⇔ 相手 ${o.goals}/${o.shots}本(${o.rate}%)`);
+    lines.push(`■GK: セーブ率${gkRate}% (${s.saves}/${s.against})`);
+    const hotConcede = Object.entries(o.courses).filter(([, d]) => d.g > 0).sort((a, b) => b[1].g - a[1].g).slice(0, 2).map(([c, d]) => c + d.g + '本').join('・');
+    if (hotConcede) lines.push(`■被弾コース: ${hotConcede}`);
+    const danger = Object.entries(opp).filter(([, p]) => p.goals > 0).sort((a, b) => b[1].goals - a[1].goals).slice(0, 2).map(([n, p]) => `#${n}(${p.goals}点)`).join(' ');
+    if (danger) lines.push(`■相手要注意: ${danger}`);
+    const hot = Object.entries(s.courses).filter(([, d]) => d.g > 0).sort((a, b) => b[1].g - a[1].g).slice(0, 2).map(([c, d]) => `${c}${d.g}/${d.s}`).join('・');
+    if (hot) lines.push(`■決まっているコース: ${hot}`);
+    lines.push(`■TO: 自${s.to} 相手${o.to} / 奪ってから: ${toChance}回→${toGoal}点`);
+    return lines.join('\n');
+}
+function copyReportText() {
+    navigator.clipboard.writeText(buildReportText())
+        .then(() => alert('コピーしました。LINE等に貼り付けて共有できます。'))
+        .catch(() => alert('コピーに失敗しました'));
+}
+function saveReportImage() {
+    if (typeof html2canvas === 'undefined') { alert('画像化ライブラリが読み込めていません(電波を確認して再読み込み)。ブラウザのスクリーンショットをご利用ください。'); return; }
+    html2canvas(document.getElementById('report-body'), { backgroundColor: '#ffffff', scale: 2 }).then(canvas => {
+        const a = document.createElement('a');
+        a.href = canvas.toDataURL('image/png');
+        a.download = 'HB即席レポート_' + (repFilter === 'all' ? '全体' : repFilter) + '.png';
+        a.click();
+    });
 }
 
 // ================== 音声入力(テストページで実証済みのv7ロジック) ==================

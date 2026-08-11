@@ -401,13 +401,10 @@ function renderClock() { document.getElementById('clock').innerText = fmt(S.seco
 // ================== 記録の中核 ==================
 function computeNeeds(ev) {
     const needs = [];
-    if (SHOTS.includes(ev.type) || TO_TYPES.includes(ev.type) || ['スチール','シュートブロック'].includes(ev.type)) {
-        if (ev.x === null) needs.push('コート');
-    }
-    if (SHOTS.includes(ev.type)) {
-        if (!ev.course) needs.push('コース');
-        if (ev.player === null) needs.push('背番号');
-    }
+    const isLocType = SHOTS.includes(ev.type) || TO_TYPES.includes(ev.type) || ['スチール','シュートブロック'].includes(ev.type);
+    if (isLocType && ev.x === null) needs.push('コート');
+    if (SHOTS.includes(ev.type) && !ev.course) needs.push('コース');
+    if (isLocType && ev.player === null) needs.push('背番号');
     return needs;
 }
 function commitEvent(partial) {
@@ -453,7 +450,8 @@ function selectAction(type, el, teamOverride) {
     pendingTeam = teamOverride || S.possession;
     document.querySelectorAll('.abtn').forEach(b => b.classList.remove('selected'));
     if (el) el.classList.add('selected');
-    openSheet(pendingTeam, `${typeLabel(type)} — ${S.teamNames[pendingTeam]}の選手をタップ`, pendingTeam === '相手');
+    // 速い展開に対応: どのチームでも「番号は後で」スキップ可(番号は補完キューへ)
+    openSheet(pendingTeam, `${typeLabel(type)} — ${S.teamNames[pendingTeam]}の選手をタップ`, true);
 }
 function typeLabel(t) { return t; }
 function gkRecord(type) {
@@ -582,8 +580,9 @@ function openEditor(id) {
     editingId = id;
     edState = { phase: ev.phase, pos: ev.pos, course: ev.course, x: ev.x, y: ev.y, player: ev.player };
     document.getElementById('ed-title').childNodes[0].nodeValue = `[${ev.half} ${ev.time}] ${S.teamNames[ev.team]} ${ev.type} `;
-    // 背番号(必要な場合のみ)
-    const needShooter = ev.player === null && SHOTS.includes(ev.type);
+    // 背番号(未入力の場合のみ)
+    const needShooter = ev.player === null;
+    document.getElementById('ed-shooter-label').innerText = `背番号(${S.teamNames[ev.team]})`;
     document.getElementById('ed-shooter-label').style.display = needShooter ? 'block' : 'none';
     document.getElementById('ed-shooter-row').style.display = needShooter ? 'flex' : 'none';
     if (needShooter) {
@@ -769,19 +768,72 @@ function repData(f) {
             }
         }
     }
-    // 5分刻み
-    const maxSec = Math.max(300, ...L.map(e => e.seconds), 0);
+    // 5分刻み(全体表示のときは前半→後半の順で時系列に並べる)
     const blocks = [];
-    for (let b = 0; b * 300 <= maxSec; b++) {
-        const bl = L.filter(e => e.seconds >= b * 300 && e.seconds < (b + 1) * 300);
-        blocks.push({
-            label: `${b * 5}〜${b * 5 + 5}`,
-            sg: bl.filter(e => e.team === '自チーム' && e.type === '得点').length,
-            og: bl.filter(e => e.team === '相手' && e.type === '得点').length,
-            sm: bl.filter(e => e.team === '自チーム' && TO_TYPES.includes(e.type)).length,
-        });
+    const halves = f === 'all' ? ['前半', '後半'] : [f];
+    for (const hf of halves) {
+        const HL = L.filter(e => e.half === hf);
+        if (!HL.length) continue;
+        const maxSec = Math.max(300, ...HL.map(e => e.seconds));
+        for (let b = 0; b * 300 <= maxSec; b++) {
+            const bl = HL.filter(e => e.seconds >= b * 300 && e.seconds < (b + 1) * 300);
+            blocks.push({
+                label: (f === 'all' ? (hf === '前半' ? '前' : '後') : '') + `${b * 5}〜${b * 5 + 5}`,
+                sg: bl.filter(e => e.team === '自チーム' && e.type === '得点').length,
+                og: bl.filter(e => e.team === '相手' && e.type === '得点').length,
+                sm: bl.filter(e => e.team === '自チーム' && TO_TYPES.includes(e.type)).length,
+            });
+        }
     }
-    return { T, pl, opp, toChance, toShot, toGoal, blocks };
+    // 番号未入力(個人集計に載らない)の件数
+    const isLoc = e => SHOTS.includes(e.type) || TO_TYPES.includes(e.type) || ['スチール', 'シュートブロック'].includes(e.type);
+    const selfNoNum = L.filter(e => e.team === '自チーム' && e.player === null && isLoc(e)).length;
+    const oppNoNum = L.filter(e => e.team === '相手' && e.player === null && isLoc(e)).length;
+    return { T, pl, opp, toChance, toShot, toGoal, blocks, selfNoNum, oppNoNum };
+}
+
+// 流れの折れ線グラフ(5分ごとの得点・2本線)
+function flowChartSvg(blocks) {
+    const W = 560, H = 150, padL = 26, padR = 10, padT = 14, padB = 22;
+    const n = blocks.length;
+    if (!n) return '';
+    const maxY = Math.max(3, ...blocks.map(b => Math.max(b.sg, b.og)));
+    const x = i => padL + (n <= 1 ? (W - padL - padR) / 2 : (W - padL - padR) * i / (n - 1));
+    const y = v => padT + (H - padT - padB) * (1 - v / maxY);
+    const line = (key, color) => {
+        const pts = blocks.map((b, i) => `${x(i)},${y(b[key])}`).join(' ');
+        const dots = blocks.map((b, i) => `<circle cx="${x(i)}" cy="${y(b[key])}" r="3" fill="${color}"/>`).join('');
+        return `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2"/>` + dots;
+    };
+    let grid = '';
+    for (let v = 0; v <= maxY; v++) grid += `<line x1="${padL}" y1="${y(v)}" x2="${W - padR}" y2="${y(v)}" stroke="#eee"/><text x="${padL - 4}" y="${y(v) + 3}" font-size="8" fill="#999" text-anchor="end">${v}</text>`;
+    const labels = blocks.map((b, i) => (n > 8 && i % 2) ? '' : `<text x="${x(i)}" y="${H - 6}" font-size="8" fill="#888" text-anchor="middle">${b.label}</text>`).join('');
+    return `<svg viewBox="0 0 ${W} ${H}" style="width:100%; background:white; border:1px solid #eee; border-radius:6px;">${grid}${labels}${line('sg', '#007AFF')}${line('og', '#FF3B30')}</svg>`;
+}
+// 点差の推移チャート(0より上=リード/下=ビハインド)
+function diffChartSvg(blocks) {
+    const n = blocks.length;
+    if (!n) return '';
+    const W = 560, H = 130, padL = 26, padR = 10, padT = 12, padB = 22;
+    let cum = 0; const diffs = blocks.map(b => (cum += b.sg - b.og));
+    const maxA = Math.max(2, ...diffs.map(Math.abs));
+    const x = i => padL + (n <= 1 ? (W - padL - padR) / 2 : (W - padL - padR) * i / (n - 1));
+    const y = v => padT + (H - padT - padB) * (1 - (v + maxA) / (2 * maxA));
+    const zero = y(0);
+    const pts = diffs.map((d, i) => `${x(i)},${y(d)}`).join(' ');
+    const area = `M ${x(0)},${zero} L ` + pts + ` L ${x(n - 1)},${zero} Z`;
+    const dots = diffs.map((d, i) => `<circle cx="${x(i)}" cy="${y(d)}" r="3" fill="${d >= 0 ? '#007AFF' : '#FF3B30'}"/><text x="${x(i)}" y="${y(d) + (d >= 0 ? -6 : 13)}" font-size="9" font-weight="bold" fill="${d >= 0 ? '#007AFF' : '#FF3B30'}" text-anchor="middle">${d > 0 ? '+' + d : d}</text>`).join('');
+    const labels = blocks.map((b, i) => (n > 8 && i % 2) ? '' : `<text x="${x(i)}" y="${H - 6}" font-size="8" fill="#888" text-anchor="middle">${b.label}</text>`).join('');
+    return `<svg viewBox="0 0 ${W} ${H}" style="width:100%; background:white; border:1px solid #eee; border-radius:6px;">
+        <rect x="${padL}" y="${padT}" width="${W - padL - padR}" height="${Math.max(0, zero - padT)}" fill="rgba(0,122,255,0.05)"/>
+        <rect x="${padL}" y="${zero}" width="${W - padL - padR}" height="${Math.max(0, H - padB - zero)}" fill="rgba(255,59,48,0.05)"/>
+        <line x1="${padL}" y1="${zero}" x2="${W - padR}" y2="${zero}" stroke="#999"/>
+        <path d="${area}" fill="rgba(0,122,255,0.12)"/>
+        <polyline points="${pts}" fill="none" stroke="#555" stroke-width="2"/>
+        ${dots}${labels}
+        <text x="${padL + 3}" y="${padT + 8}" font-size="8" fill="#007AFF">リード</text>
+        <text x="${padL + 3}" y="${H - padB - 4}" font-size="8" fill="#FF3B30">ビハインド</text>
+    </svg>`;
 }
 
 // 3×3ミニゴール図(コース別ヒートマップ)
@@ -800,7 +852,7 @@ function miniGoalGrid(cells, colorFn) {
 function renderReport(f) {
     repFilter = f;
     ['前半', '後半', 'all'].forEach(k => document.getElementById('rh-' + k).classList.toggle('on', k === f));
-    const { T, pl, opp, toChance, toShot, toGoal, blocks } = repData(f);
+    const { T, pl, opp, toChance, toShot, toGoal, blocks, selfNoNum, oppNoNum } = repData(f);
     const s = T['自チーム'], o = T['相手'];
     const selfName = S.teamNames['自チーム'], oppName = S.teamNames['相手'];
     const gkRate = s.against ? Math.round(s.saves / s.against * 100) : 0;
@@ -816,7 +868,9 @@ function renderReport(f) {
             const rr = p.shots ? Math.round(p.goals / p.shots * 100) : 0;
             h += `<tr><td><b>#${num}</b> ${pName('自チーム', num)}</td><td>${p.shots ? p.goals + '/' + p.shots + ' (' + rr + '%)' : '-'}</td><td>${p.as || ''}</td><td style="color:${p.to >= 3 ? 'var(--danger)' : 'inherit'}; font-weight:${p.to >= 3 ? 'bold' : 'normal'};">${p.to || ''}</td><td>${p.df || ''}</td></tr>`;
         }
-        h += '</table></div>';
+        h += '</table>';
+        if (selfNoNum > 0) h += `<div style="background:#FFF3CD; border-radius:6px; padding:6px 10px; font-size:11px; margin-top:6px;">⚠️ <b>番号未入力が ${selfNoNum} 件</b>あり個人集計に含まれていません。⏳補完から背番号を入れてください。</div>`;
+        h += '</div>';
     }
     h += `<div class="rep-sec"><h3>🧤 ${selfName}GK — セーブ率 ${gkRate}% (${s.saves}/${s.against})</h3>
         <div style="font-size:10px; color:#888; margin-bottom:4px;">被弾コース: 赤いほど決められている(コース入力済み ${o.courseIn}/${o.shots}本)</div>
@@ -824,8 +878,10 @@ function renderReport(f) {
     const oppRows = Object.entries(opp).sort((a, b) => b[1].goals - a[1].goals).filter(([, p]) => p.goals > 0).slice(0, 5);
     if (oppRows.length) {
         h += `<div class="rep-sec"><h3>⚠️ ${oppName} 要注意シューター</h3><table><tr><th>背番号</th><th>得点/本</th></tr>`;
-        for (const [num, p] of oppRows) h += `<tr><td>#${num}</td><td>${p.goals}/${p.shots}</td></tr>`;
-        h += '</table></div>';
+        for (const [num, p] of oppRows) h += `<tr><td>${num === '?' ? '番号未入力' : '#' + num}</td><td>${p.goals}/${p.shots}</td></tr>`;
+        h += '</table>';
+        if (oppNoNum > 0) h += `<div style="font-size:10px; color:#888; margin-top:4px;">※相手の番号未入力 ${oppNoNum} 件。余裕があれば⏳補完で入力すると要注意シューターが特定できます。</div>`;
+        h += '</div>';
     }
     h += `<div class="rep-sec"><h3>🎯 ${oppName}GK攻略 — 相手セーブ率 ${oppGkRate}%</h3>
         <div style="font-size:10px; color:#888; margin-bottom:4px;">緑=決まっているコース / 赤=止められているコース(コース入力済み ${s.courseIn}/${s.shots}本)</div>
@@ -833,7 +889,12 @@ function renderReport(f) {
     h += `<div class="rep-sec"><h3>⚡ ミスと速攻</h3>
         <p style="font-size:12px; margin:0;">ターンオーバー: ${selfName} <b>${s.to}</b> 回 / ${oppName} <b>${o.to}</b> 回<br>
         ボール奪取から20秒以内: チャンス <b>${toChance}</b> 回 → シュート <b>${toShot}</b> 本 → <b style="color:var(--danger);">${toGoal}</b> 点</p></div>`;
-    h += `<div class="rep-sec"><h3>⏱️ 5分ごとの流れ${f === 'all' ? '(前後半合算)' : ''}</h3><table><tr><th>分</th><th style="color:var(--primary);">自得点</th><th style="color:var(--danger);">相手</th><th>自ミス</th></tr>`;
+    h += `<div class="rep-sec"><h3>⏱️ 流れ(5分ごと)${f === 'all' ? ' — 前半→後半' : ''}</h3>
+        <div style="font-size:10px; color:#888; margin-bottom:2px;">5分ごとの得点(<b style="color:var(--primary);">青=${selfName}</b> / <b style="color:var(--danger);">赤=${oppName}</b>)</div>
+        ${flowChartSvg(blocks)}
+        <div style="font-size:10px; color:#888; margin:8px 0 2px;">点差の推移 — 線が上がっていれば流れはこちら</div>
+        ${diffChartSvg(blocks)}
+        <table style="margin-top:8px;"><tr><th>分</th><th style="color:var(--primary);">自得点</th><th style="color:var(--danger);">相手</th><th>自ミス</th></tr>`;
     for (const b of blocks) {
         const bg = b.sg > b.og ? 'background:rgba(0,122,255,0.06);' : (b.sg < b.og ? 'background:rgba(255,59,48,0.06);' : '');
         h += `<tr style="${bg}"><td>${b.label}</td><td>${b.sg}</td><td>${b.og}</td><td>${b.sm}</td></tr>`;
